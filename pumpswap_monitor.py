@@ -73,7 +73,7 @@ TELEGRAM_API_F3  = f"https://api.telegram.org/bot{BOT_TOKEN_FILTER3}"
 lock                 = threading.Lock()
 seen_tokens_set: set = set()   # fast lookup, loaded from DB on startup
 filter_state: dict   = {}
-update_offsets: dict = {"f2": 0, "f3": 0}
+update_offsets: dict = {"f2": 0, "f3": 0, "new": 0}
 
 
 # ─── DATABASE ─────────────────────────────────────────────────────────────────
@@ -203,23 +203,85 @@ def send_telegram(api_url: str, message: str):
         print(f"  TG error: {e}")
 
 
+def handle_seen(api_url: str):
+    with lock:
+        tokens = list(seen_tokens_set)
+    total = len(tokens)
+    if not total:
+        send_telegram(api_url, "📭 <b>No tokens tracked yet.</b>")
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header = f"📋 <b>Tracked tokens: {total}</b>  |  <i>{now}</i>
+
+"
+    chunk = header
+    for i, addr in enumerate(tokens, 1):
+        line = f"{i}. <code>{addr}</code>
+"
+        if len(chunk) + len(line) > 3800:
+            send_telegram(api_url, chunk)
+            chunk = line
+            time.sleep(0.3)
+        else:
+            chunk += line
+    if chunk.strip():
+        send_telegram(api_url, chunk)
+
+
+def handle_missing(api_url: str):
+    with lock:
+        tokens = list(seen_tokens_set)
+    if not tokens:
+        send_telegram(api_url, "📭 <b>No tokens tracked yet.</b>")
+        return
+    send_telegram(api_url, f"⏳ Checking {len(tokens)} tokens, please wait...")
+    pairs = fetch_token_data(tokens)
+    returned_addrs = {(p.get("baseToken") or {}).get("address") for p in pairs}
+    missing = [addr for addr in tokens if addr not in returned_addrs]
+    if not missing:
+        send_telegram(api_url, f"✅ <b>All {len(tokens)} tokens returned data from DexScreener.</b>")
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header = f"❓ <b>No data for {len(missing)}/{len(tokens)} tokens</b>  |  <i>{now}</i>
+<i>(likely dead/rugged or not yet indexed)</i>
+
+"
+    chunk = header
+    for i, addr in enumerate(missing, 1):
+        line = f"{i}. <code>{addr}</code>
+"
+        if len(chunk) + len(line) > 3800:
+            send_telegram(api_url, chunk)
+            chunk = line
+            time.sleep(0.3)
+        else:
+            chunk += line
+    if chunk.strip():
+        send_telegram(api_url, chunk)
+
+
 def check_commands():
     bots = [
-        ("f2", TELEGRAM_API_F2, F2),
-        ("f3", TELEGRAM_API_F3, F3),
+        ("f2",  TELEGRAM_API_F2,  F2),
+        ("f3",  TELEGRAM_API_F3,  F3),
+        ("new", TELEGRAM_API_NEW, None),
     ]
     for key, api_url, flt in bots:
         try:
             r = requests.get(f"{api_url}/getUpdates",
-                             params={"offset": update_offsets[key] + 1, "timeout": 0},
+                             params={"offset": update_offsets.get(key, 0) + 1, "timeout": 0},
                              timeout=10)
             if not r.ok:
                 continue
             for update in r.json().get("result", []):
                 update_offsets[key] = update["update_id"]
                 text = update.get("message", {}).get("text", "").strip().lower()
-                if text.startswith("/status"):
+                if text.startswith("/status") and flt:
                     handle_status(api_url, flt)
+                elif text.startswith("/missing"):
+                    handle_missing(api_url)
+                elif text.startswith("/seen"):
+                    handle_seen(api_url)
         except Exception as e:
             print(f"  Command poll error ({key}): {e}")
 
