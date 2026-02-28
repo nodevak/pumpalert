@@ -208,22 +208,20 @@ def handle_seen(api_url: str):
         tokens = list(seen_tokens_set)
     total = len(tokens)
     if not total:
-        send_telegram(api_url, "📭 <b>No tokens tracked yet.</b>")
+        send_telegram(api_url, "<b>No tokens tracked yet.</b>")
         return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    header = f"📋 <b>Tracked tokens: {total}</b>  |  <i>{now}</i>
-
-"
-    chunk = header
+    lines = ["<b>Tracked: " + str(total) + " tokens</b>  |  <i>" + now + "</i>\n"]
     for i, addr in enumerate(tokens, 1):
-        line = f"{i}. <code>{addr}</code>
-"
-        if len(chunk) + len(line) > 3800:
+        lines.append(str(i) + ". <code>" + addr + "</code>")
+    chunk = ""
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3800:
             send_telegram(api_url, chunk)
             chunk = line
             time.sleep(0.3)
         else:
-            chunk += line
+            chunk = chunk + "\n" + line if chunk else line
     if chunk.strip():
         send_telegram(api_url, chunk)
 
@@ -232,30 +230,28 @@ def handle_missing(api_url: str):
     with lock:
         tokens = list(seen_tokens_set)
     if not tokens:
-        send_telegram(api_url, "📭 <b>No tokens tracked yet.</b>")
+        send_telegram(api_url, "<b>No tokens tracked yet.</b>")
         return
-    send_telegram(api_url, f"⏳ Checking {len(tokens)} tokens, please wait...")
+    send_telegram(api_url, "Checking " + str(len(tokens)) + " tokens, please wait...")
     pairs = fetch_token_data(tokens)
     returned_addrs = {(p.get("baseToken") or {}).get("address") for p in pairs}
     missing = [addr for addr in tokens if addr not in returned_addrs]
     if not missing:
-        send_telegram(api_url, f"✅ <b>All {len(tokens)} tokens returned data from DexScreener.</b>")
+        send_telegram(api_url, "<b>All " + str(len(tokens)) + " tokens returned data.</b>")
         return
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    header = f"❓ <b>No data for {len(missing)}/{len(tokens)} tokens</b>  |  <i>{now}</i>
-<i>(likely dead/rugged or not yet indexed)</i>
-
-"
-    chunk = header
+    lines = ["<b>No data for " + str(len(missing)) + "/" + str(len(tokens)) + " tokens</b>  |  <i>" + now + "</i>",
+             "<i>(likely dead/rugged or not yet indexed)</i>"]
     for i, addr in enumerate(missing, 1):
-        line = f"{i}. <code>{addr}</code>
-"
-        if len(chunk) + len(line) > 3800:
+        lines.append(str(i) + ". <code>" + addr + "</code>")
+    chunk = ""
+    for line in lines:
+        if len(chunk) + len(line) + 1 > 3800:
             send_telegram(api_url, chunk)
             chunk = line
             time.sleep(0.3)
         else:
-            chunk += line
+            chunk = chunk + "\n" + line if chunk else line
     if chunk.strip():
         send_telegram(api_url, chunk)
 
